@@ -1324,6 +1324,8 @@ pf_mask = np.load('./jc_full_data_new/jc_full_pf_mask.npy')[:batch_size]
 pf_points = np.load('./jc_full_data_new/jc_full_pf_points.npy')[:batch_size]
 labels = np.load('./jc_full_data_new/jc_full_labels.npy')[:batch_size]
 
+pf_features = torch
+
 print(pf_features.shape)
 print(labels.shape)
 print(pf_mask.shape)
@@ -1342,10 +1344,10 @@ print(model)
 # %%
 model.eval()
 with torch.no_grad():
-    outputs = model(torch.from_numpy(pf_points).float(),
-                        torch.from_numpy(pf_features).float(), 
-                        torch.from_numpy(pf_vectors).float(), 
-                        torch.from_numpy(pf_mask).float())
+    outputs = model(torch.from_numpy(pf_points).float().cuda(),
+                        torch.from_numpy(pf_features).float().cuda(), 
+                        torch.from_numpy(pf_vectors).float().cuda(), 
+                        torch.from_numpy(pf_mask).float().cuda())
     print(outputs.shape)
 
 # %%
