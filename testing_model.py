@@ -189,6 +189,7 @@ class GatedLinearAttention(nn.Module):
         **kwargs: Unpack[Dict]
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Cache]]:
 
+        assert isinstance(hidden_states, torch.Tensor), f'hidden_states must be a torch.Tensor, but got {type(hidden_states)}\n{hidden_states}'
         if attention_mask is not None:
             #print(attention_mask.shape)
             #attention_mask = np.reshape(attention_mask[:,:], newshape=(attention_mask.shape[1], attention_mask.shape[-1]))
@@ -792,12 +793,7 @@ class Block(nn.Module):
             
             else:
                 x = self.attn(
-                    x, x, x, attention_mask=padding_mask)  # (seq_len, batch, embed_dim)
-                y = self.attn(
-                    x, x, x, key_padding_mask=padding_mask,
-                    attn_mask=attn_mask, average_attn_weights=False, return_pre_softmax=self.return_pre_softmax)[1]
-            
-            self.interaction = y
+                    hidden_states=x, k=x, v=x, attention_mask=padding_mask)  # (seq_len, batch, embed_dim)
 
 
         if self.c_attn is not None:
