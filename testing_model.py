@@ -1324,8 +1324,6 @@ pf_mask = np.load('./jc_full_data_new/jc_full_pf_mask.npy')[:batch_size]
 pf_points = np.load('./jc_full_data_new/jc_full_pf_points.npy')[:batch_size]
 labels = np.load('./jc_full_data_new/jc_full_labels.npy')[:batch_size]
 
-pf_features = torch
-
 print(pf_features.shape)
 print(labels.shape)
 print(pf_mask.shape)
