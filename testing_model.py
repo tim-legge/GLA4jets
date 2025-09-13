@@ -188,8 +188,6 @@ class GatedLinearAttention(nn.Module):
         output_attentions: Optional[bool] = False,
         **kwargs: Unpack[Dict]
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Cache]]:
-        
-        device = hidden_states.device
 
         if attention_mask is not None:
             #print(attention_mask.shape)
