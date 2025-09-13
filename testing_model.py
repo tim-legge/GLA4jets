@@ -192,8 +192,7 @@ class GatedLinearAttention(nn.Module):
         if attention_mask is not None:
             #print(attention_mask.shape)
             #attention_mask = np.reshape(attention_mask[:,:], newshape=(attention_mask.shape[1], attention_mask.shape[-1]))
-            #print(attention_mask.shape)
-            attention_mask = attention_mask.to(device=device)
+            print(attention_mask.shape)
             assert len(attention_mask.shape) == 2, (
                 "Expected attention_mask as a 0-1 matrix with shape [batch_size, seq_len] "
                 "for padding purposes (0 indicating padding). "
