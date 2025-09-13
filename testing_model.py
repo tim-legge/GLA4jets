@@ -315,8 +315,9 @@ class GatedLinearAttention(nn.Module):
             o = rearrange(self.g_norm(o), '... h d -> ... (h d)')
         o = self.o_proj(o)
         if attention_mask is not None:
-            o = pad_input(o.squeeze(0), indices, batch_size, q_len)
-
+            #o = pad_input(o.squeeze(0), indices, batch_size, q_len)
+            pass
+        
         return o, None, past_key_values
 
 # %%
