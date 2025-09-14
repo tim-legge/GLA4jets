@@ -1,6 +1,8 @@
 ### This model includes GLA layers in place of the 8 P-MHA blocks of the original ParT architecture.
 ### Standard MHA remains in the class blocks.
 
+from __future__ import annotations
+
 import torch
 from weaver.nn.model.ParticleTransformer import ParticleTransformer
 from weaver.utils.logger import _logger
@@ -11,9 +13,6 @@ from weaver.utils.logger import _logger
 
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
-
-
-from __future__ import annotations
 
 from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
