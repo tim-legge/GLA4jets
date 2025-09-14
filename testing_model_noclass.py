@@ -1429,7 +1429,7 @@ def get_model(model_type='qg',**kwargs):
             activation='gelu',
             # misc
             trim=True,
-            for_inference=False,
+            for_inference=True,
         )
     
     cfg.update(**kwargs)
