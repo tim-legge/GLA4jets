@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
     from fla.models.utils import Cache
 
-torch.set_default_device('cuda')
+#torch.set_default_device('cuda')
 
 class GatedLinearAttention(nn.Module):
     r"""
@@ -126,7 +126,7 @@ class GatedLinearAttention(nn.Module):
         self.value_dim_per_group = self.value_dim // self.num_kv_groups
         self.clamp_min = clamp_min
         self.layer_idx = layer_idx
-        torch.set_default_device('cuda')
+        #torch.set_default_device('cuda')
 
         assert mode in ['chunk', 'fused_recurrent', 'fused_chunk'], f"Not supported mode `{mode}`."
         assert self.key_dim % num_heads == 0, f"key dim must be divisible by num_heads of {num_heads}"
@@ -200,7 +200,7 @@ class GatedLinearAttention(nn.Module):
         if attention_mask is not None:
             #print(attention_mask.shape)
             #attention_mask = np.reshape(attention_mask[:,:], newshape=(attention_mask.shape[1], attention_mask.shape[-1]))
-            print(attention_mask.shape)
+            #print(attention_mask.shape)
             assert len(attention_mask.shape) == 2, (
                 "Expected attention_mask as a 0-1 matrix with shape [batch_size, seq_len] "
                 "for padding purposes (0 indicating padding). "
@@ -568,7 +568,7 @@ class SequenceTrimmer(nn.Module):
 class Embed(nn.Module):
     def __init__(self, input_dim, dims, normalize_input=True, activation='gelu'):
         super().__init__()
-        torch.set_default_device('cuda')
+        #torch.set_default_device('cuda')
         self.input_bn = nn.BatchNorm1d(input_dim) if normalize_input else None
         module_list = []
         for dim in dims:
@@ -596,7 +596,7 @@ class PairEmbed(nn.Module):
             normalize_input=True, activation='gelu', eps=1e-8,
             for_onnx=False):
         super().__init__()
-        torch.set_default_device('cuda')
+        #torch.set_default_device('cuda')
         self.pairwise_lv_dim = pairwise_lv_dim
         self.pairwise_input_dim = pairwise_input_dim
         self.is_symmetric = (pairwise_lv_dim <= 5) and (pairwise_input_dim == 0)
@@ -713,7 +713,7 @@ class GLABlock(nn.Module):
                  scale_fc=True, scale_attn=True, scale_heads=True, scale_resids=True,
                  return_pre_softmax=False, gate_low_rank_dim=4):
         super().__init__()
-        torch.set_default_device('cuda')
+        #torch.set_default_device('cuda')
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
@@ -839,7 +839,7 @@ class MHABlock(nn.Module):
                  scale_fc=True, scale_attn=True, scale_heads=True, scale_resids=True,
                  return_pre_softmax=False, gate_low_rank_dim=4):
         super().__init__()
-        torch.set_default_device('cuda')
+        #torch.set_default_device('cuda')
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
@@ -986,7 +986,7 @@ class ParticleTransformer(nn.Module):
                  return_pre_softmax=False,
                  **kwargs) -> None:
         super().__init__(**kwargs)
-        torch.set_default_device('cuda')
+        #torch.set_default_device('cuda')
         self.trimmer = SequenceTrimmer(enabled=trim and not for_inference)
         self.attention_matrix = []
         self.for_inference = for_inference
@@ -1110,7 +1110,7 @@ class ParticleTransformer(nn.Module):
 class ParticleTransformerWrapper(torch.nn.Module):
     def __init__(self, **kwargs) -> None:
         super().__init__()
-        torch.set_default_device('cuda')
+        #torch.set_default_device('cuda')
         self.mod = ParticleTransformer(**kwargs)
         self.kwargs = kwargs
         self.attention_matrix = None
