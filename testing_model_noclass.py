@@ -190,7 +190,7 @@ class GatedLinearAttention(nn.Module):
         **kwargs: Unpack[Dict]
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Cache]]:
 
-        assert isinstance(q, torch.Tensor), f'query must be a torch.Tensor, but got {type(q)}\n{q}'
+        assert isinstance(hidden_states, torch.Tensor), f'query must be a torch.Tensor, but got {type(q)}\n{q}'
         if attention_mask is not None:
             #print(attention_mask.shape)
             #attention_mask = np.reshape(attention_mask[:,:], newshape=(attention_mask.shape[1], attention_mask.shape[-1]))
