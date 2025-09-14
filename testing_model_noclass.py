@@ -212,7 +212,7 @@ class GatedLinearAttention(nn.Module):
         cu_seqlens = kwargs.get('cu_seqlens', None)
         if attention_mask is not None:
             indices, cu_seqlens, _ = get_unpad_data(attention_mask[:, -tgt_len:])
-            q = index_first_axis(rearrange(q, "b s ... -> (b s) ..."), indices).unsqueeze(0)
+            hidden_states = index_first_axis(rearrange(q, "b s ... -> (b s) ..."), indices).unsqueeze(0)
 
         if self.use_short_conv:
             conv_state_q, conv_state_k, conv_state_v = None, None, None
