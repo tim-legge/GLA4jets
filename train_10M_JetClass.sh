@@ -32,7 +32,7 @@ model=$1
 if [[ "$model" == "ParT" ]]; then
     modelopts="networks/example_ParticleTransformer.py --use-amp"
     batchopts="--batch-size 512 --start-lr 1e-3"
-elif [[ "$model" == "GLA-ParT"]]; then
+elif [[ "$model" == "GLA-ParT" ]]; then
     modelopts="networks/example_GLA-ParT-v1.py"
     batchopts="--batch-size 512 --start-lr 1e-3"
 elif [[ "$model" == "PN" ]]; then
