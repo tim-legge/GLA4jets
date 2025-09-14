@@ -180,7 +180,7 @@ class GatedLinearAttention(nn.Module):
 
     def forward(
         self,
-        q: torch.Tensor,
+        hidden_states: torch.Tensor,
         k: torch.Tensor,
         v: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
@@ -238,14 +238,14 @@ class GatedLinearAttention(nn.Module):
             )
         else:
             if k is not None and v is not None: # cross attention in the class token layers
-                q = self.q_proj(q)
+                q = self.q_proj(hidden_states)
                 k = self.k_proj(k)
                 v = self.v_proj(v)
             else:
-                q = self.q_proj(q)
-                k = self.k_proj(q)
-                v = self.v_proj(q)
-        gk = self.gk_proj(q)
+                q = self.q_proj(hidden_states)
+                k = self.k_proj(hidden_states)
+                v = self.v_proj(hidden_states)
+        gk = self.gk_proj(hidden_states)
 
         if self.feature_map_fn is not None:
             q, k = map(self.feature_map_fn, (q, k))
