@@ -765,13 +765,13 @@ class GLABlock(nn.Module):
 
             if self.return_pre_softmax:
                 x, _, pre_softmax_attention, pre_softmax_interaction = self.attn(
-                    q=x_cls, k=u, v=u, attention_mask=padding_mask,
+                    hidden_states=x_cls, k=u, v=u, attention_mask=padding_mask,
                     )
                 #pre_softmax_attention.cpu().detach()
                 #pre_softmax_interaction.cpu().detach()
             else:
 
-                x = self.attn(q=x_cls, k=u, v=u, attention_mask=padding_mask)[0]  # (1, batch, embed_dim)
+                x = self.attn(hidden_states=x_cls, k=u, v=u, attention_mask=padding_mask)[0]  # (1, batch, embed_dim)
 
             pre_softmax_attention = None
             pre_softmax_interaction = None
@@ -795,7 +795,7 @@ class GLABlock(nn.Module):
             
             else:
                 x = self.attn(
-                    q=x, k=x, v=x, attention_mask=padding_mask)[0]  # (seq_len, batch, embed_dim)
+                    hidden_states=x, k=x, v=x, attention_mask=padding_mask)[0]  # (seq_len, batch, embed_dim)
 
         assert isinstance(x, Tensor), f'x should be a Tensor but got {type(x)}\n{x}'
 
