@@ -201,9 +201,9 @@ class GatedLinearAttention(nn.Module):
                 "Arbitrary attention masks of shape [batch_size, seq_len, seq_len] are not allowed."
             )
 
-        batch_size, tgt_len, embed = q.shape
+        batch_size, tgt_len, embed = hidden_states.shape
         _, src_len, _ = k.shape
-        mode = 'fused_recurrent' if q.shape[1] <= 64 else self.mode
+        mode = 'fused_recurrent' if hidden_states.shape[1] <= 64 else self.mode
 
         last_state = None
         if past_key_values is not None and len(past_key_values) > self.layer_idx:
