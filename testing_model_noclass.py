@@ -849,7 +849,6 @@ class MHABlock(nn.Module):
             num_heads,
             dropout=attn_dropout,
             add_bias_kv=add_bias_kv,
-            return_pre_softmax=self.return_pre_softmax
         )
         self.post_attn_norm = nn.LayerNorm(embed_dim) if scale_attn else None
         self.dropout = nn.Dropout(dropout)
@@ -899,7 +898,7 @@ class MHABlock(nn.Module):
                 #pre_softmax_interaction.cpu().detach()
             else:
 
-                x = self.attn(q=x_cls, k=u, v=u, attention_mask=padding_mask)[0]  # (1, batch, embed_dim)
+                x = self.attn(x_cls, u, u, attention_mask=padding_mask)[0]  # (1, batch, embed_dim)
 
             pre_softmax_attention = None
             pre_softmax_interaction = None
@@ -999,6 +998,12 @@ class ParticleTransformer(nn.Module):
         _logger.info('cfg_block: %s' % str(cfg_block))
 
         cfg_cls_block = copy.deepcopy(default_cfg)
+        # tells it to act like a typical MHA block
+        cfg_cls_block = dict(embed_dim=embed_dim, num_heads=num_heads, ffn_ratio=4,
+                           dropout=0.1, attn_dropout=0.1, activation_dropout=0.1,
+                           add_bias_kv=False, activation=activation,
+                           scale_fc=True, scale_attn=True, scale_heads=True, scale_resids=True,
+                           return_pre_softmax=self.return_pre_softmax)
         if cls_block_params is not None:
             cfg_cls_block.update(cls_block_params)
         _logger.info('cfg_cls_block: %s' % str(cfg_cls_block))
