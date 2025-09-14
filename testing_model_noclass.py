@@ -892,13 +892,13 @@ class MHABlock(nn.Module):
 
             if self.return_pre_softmax:
                 x, _, pre_softmax_attention, pre_softmax_interaction = self.attn(
-                    x_cls, u, u, attention_mask=padding_mask,
+                    x_cls, u, u, key_padding_mask=padding_mask,
                     )
                 #pre_softmax_attention.cpu().detach()
                 #pre_softmax_interaction.cpu().detach()
             else:
 
-                x = self.attn(x_cls, u, u, attention_mask=padding_mask)[0]  # (1, batch, embed_dim)
+                x = self.attn(x_cls, u, u, key_padding_mask=padding_mask)[0]  # (1, batch, embed_dim)
 
             pre_softmax_attention = None
             pre_softmax_interaction = None
@@ -922,7 +922,7 @@ class MHABlock(nn.Module):
             
             else:
                 x = self.attn(
-                    x, x, x, padding_mask=padding_mask)  # (seq_len, batch, embed_dim)
+                    x, x, x, key_padding_mask=padding_mask)  # (seq_len, batch, embed_dim)
 
         assert isinstance(x, Tensor), f'x should be a Tensor but got {type(x)}\n{x}'
 
