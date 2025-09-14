@@ -303,7 +303,7 @@ class GatedLinearAttention(nn.Module):
             )
 
         if self.use_output_gate:
-            g = self.g_proj(q)
+            g = self.g_proj(hidden_states)
             if self.fuse_norm_and_gate:
                 g = rearrange(g, '... (h d) -> ... h d', d=self.head_v_dim)
                 o = self.g_norm_swish_gate(o, g)
