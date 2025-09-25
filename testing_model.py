@@ -769,7 +769,7 @@ class GLABlock(nn.Module):
             u = self.pre_attn_norm(u)
 
             # x_cls padded to (seq_len+1, batch, embed_dim)
-            cls_padding = torch.zeros(x.shape)
+            cls_padding = torch.zeros(x.shape, device=x.device, dtype=x.dtype)
             x_cls_padded = torch.cat((x_cls, cls_padding), dim=0)
 
             if self.return_pre_softmax:
