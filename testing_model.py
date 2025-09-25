@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
     from fla.models.utils import Cache
 
-#torch.set_default_device('cuda')
+torch.set_default_device('cuda')
 
 class GatedLinearAttention(nn.Module):
     r"""
