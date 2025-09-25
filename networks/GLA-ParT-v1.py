@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import torch
-from weaver.nn.model.ParticleTransformer import ParticleTransformer
 from weaver.utils.logger import _logger
 
 # %%
@@ -769,15 +768,19 @@ class GLABlock(nn.Module):
             u = torch.cat(tensors=(x_cls, x), dim=0)  # (seq_len+1, batch, embed_dim)
             u = self.pre_attn_norm(u)
 
+            # x_cls padded to (seq_len+1, batch, embed_dim)
+            cls_padding = torch.zeros(x.shape)
+            x_cls_padded = torch.cat((x_cls, cls_padding), dim=0)
+
             if self.return_pre_softmax:
                 x, _, pre_softmax_attention, pre_softmax_interaction = self.attn(
-                    hidden_states=x_cls, k=u, v=u, attention_mask=padding_mask,
+                    hidden_states=x_cls_padded, k=u, v=u, attention_mask=padding_mask,
                     )
                 #pre_softmax_attention.cpu().detach()
                 #pre_softmax_interaction.cpu().detach()
             else:
 
-                x = self.attn(hidden_states=x_cls, k=u, v=u, attention_mask=padding_mask)[0]  # (1, batch, embed_dim)
+                x = self.attn(hidden_states=x_cls_padded, k=u, v=u, attention_mask=padding_mask)[0][0]  # (1, batch, embed_dim)
 
             pre_softmax_attention = None
             pre_softmax_interaction = None
@@ -1010,6 +1013,8 @@ class ParticleTransformer(nn.Module):
                            add_bias_kv=False, activation=activation,
                            scale_fc=True, scale_attn=True, scale_heads=True, scale_resids=True,
                            return_pre_softmax=self.return_pre_softmax)
+        gla_cfg_cls_block = dict(embed_dim=embed_dim, num_heads=num_heads, 
+                                gate_low_rank_dim=4,)
         if cls_block_params is not None:
             cfg_cls_block.update(cls_block_params)
         _logger.info('cfg_cls_block: %s' % str(cfg_cls_block))
@@ -1021,7 +1026,7 @@ class ParticleTransformer(nn.Module):
             remove_self_pair=remove_self_pair, use_pre_activation_pair=use_pre_activation_pair,
             for_onnx=for_inference) if pair_embed_dims is not None and pair_input_dim + pair_extra_dim > 0 else None
         self.blocks = nn.ModuleList([GLABlock(**cfg_block) for _ in range(num_layers)])
-        self.cls_blocks = nn.ModuleList([MHABlock(**cfg_cls_block) for _ in range(num_cls_layers)])
+        self.cls_blocks = nn.ModuleList([GLABlock(**gla_cfg_cls_block) for _ in range(num_cls_layers)])
         self.norm = nn.LayerNorm(embed_dim)
         self.interactionMatrix = None
 

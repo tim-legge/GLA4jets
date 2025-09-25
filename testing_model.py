@@ -1,3 +1,11 @@
+### This model includes GLA layers in place of the 8 P-MHA blocks of the original ParT architecture.
+### Standard MHA remains in the class blocks.
+
+from __future__ import annotations
+
+import torch
+from weaver.utils.logger import _logger
+
 # %%
 ### First attempted implementation of Gated Linear Attention
 ### We will load a pretrained language model and try to adapt its usage
@@ -5,15 +13,13 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn import MultiheadAttention
 from einops import rearrange, repeat
 
 from fla.layers.utils import get_unpad_data, index_first_axis, pad_input
@@ -26,7 +32,7 @@ if TYPE_CHECKING:
 
     from fla.models.utils import Cache
 
-torch.set_default_device('cuda')
+#torch.set_default_device('cuda')
 
 class GatedLinearAttention(nn.Module):
     r"""
@@ -119,7 +125,7 @@ class GatedLinearAttention(nn.Module):
         self.value_dim_per_group = self.value_dim // self.num_kv_groups
         self.clamp_min = clamp_min
         self.layer_idx = layer_idx
-        torch.set_default_device('cuda')
+        #torch.set_default_device('cuda')
 
         assert mode in ['chunk', 'fused_recurrent', 'fused_chunk'], f"Not supported mode `{mode}`."
         assert self.key_dim % num_heads == 0, f"key dim must be divisible by num_heads of {num_heads}"
@@ -179,7 +185,7 @@ class GatedLinearAttention(nn.Module):
 
     def forward(
         self,
-        q: torch.Tensor,
+        hidden_states: torch.Tensor,
         k: torch.Tensor,
         v: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
@@ -189,20 +195,20 @@ class GatedLinearAttention(nn.Module):
         **kwargs: Unpack[Dict]
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Cache]]:
 
-        assert isinstance(q, torch.Tensor), f'query must be a torch.Tensor, but got {type(q)}\n{q}'
+        assert isinstance(hidden_states, torch.Tensor), f'query must be a torch.Tensor, but got {type(q)}\n{q}'
         if attention_mask is not None:
             #print(attention_mask.shape)
             #attention_mask = np.reshape(attention_mask[:,:], newshape=(attention_mask.shape[1], attention_mask.shape[-1]))
-            print(attention_mask.shape)
+            #print(attention_mask.shape)
             assert len(attention_mask.shape) == 2, (
                 "Expected attention_mask as a 0-1 matrix with shape [batch_size, seq_len] "
                 "for padding purposes (0 indicating padding). "
                 "Arbitrary attention masks of shape [batch_size, seq_len, seq_len] are not allowed."
             )
 
-        batch_size, tgt_len, embed = q.shape
+        batch_size, tgt_len, embed = hidden_states.shape
         _, src_len, _ = k.shape
-        mode = 'fused_recurrent' if q.shape[1] <= 64 else self.mode
+        mode = 'fused_recurrent' if hidden_states.shape[1] <= 64 else self.mode
 
         last_state = None
         if past_key_values is not None and len(past_key_values) > self.layer_idx:
@@ -211,40 +217,40 @@ class GatedLinearAttention(nn.Module):
         cu_seqlens = kwargs.get('cu_seqlens', None)
         if attention_mask is not None:
             indices, cu_seqlens, _ = get_unpad_data(attention_mask[:, -tgt_len:])
-            q = index_first_axis(rearrange(q, "b s ... -> (b s) ..."), indices).unsqueeze(0)
+            hidden_states = index_first_axis(rearrange(hidden_states, "b s ... -> (b s) ..."), indices).unsqueeze(0)
 
         if self.use_short_conv:
             conv_state_q, conv_state_k, conv_state_v = None, None, None
             if last_state is not None:
                 conv_state_q, conv_state_k, conv_state_v = last_state['conv_state']
             q, conv_state_q = self.q_conv1d(
-                x=self.q_proj(q),
+                x=self.q_proj(hidden_states),
                 cache=conv_state_q,
                 output_final_state=use_cache,
                 cu_seqlens=cu_seqlens
             )
             k, conv_state_k = self.k_conv1d(
-                x=self.k_proj(q),
+                x=self.k_proj(k),
                 cache=conv_state_k,
                 output_final_state=use_cache,
                 cu_seqlens=cu_seqlens
             )
             v, conv_state_v = self.v_conv1d(
-                x=self.v_proj(q),
+                x=self.v_proj(v),
                 cache=conv_state_v,
                 output_final_state=use_cache,
                 cu_seqlens=cu_seqlens
             )
         else:
             if k is not None and v is not None: # cross attention in the class token layers
-                q = self.q_proj(q)
+                q = self.q_proj(hidden_states)
                 k = self.k_proj(k)
                 v = self.v_proj(v)
             else:
-                q = self.q_proj(q)
-                k = self.k_proj(q)
-                v = self.v_proj(q)
-        gk = self.gk_proj(q)
+                q = self.q_proj(hidden_states)
+                k = self.k_proj(hidden_states)
+                v = self.v_proj(hidden_states)
+        gk = self.gk_proj(hidden_states)
 
         if self.feature_map_fn is not None:
             q, k = map(self.feature_map_fn, (q, k))
@@ -302,7 +308,7 @@ class GatedLinearAttention(nn.Module):
             )
 
         if self.use_output_gate:
-            g = self.g_proj(q)
+            g = self.g_proj(hidden_states)
             if self.fuse_norm_and_gate:
                 g = rearrange(g, '... (h d) -> ... h d', d=self.head_v_dim)
                 o = self.g_norm_swish_gate(o, g)
@@ -561,7 +567,7 @@ class SequenceTrimmer(nn.Module):
 class Embed(nn.Module):
     def __init__(self, input_dim, dims, normalize_input=True, activation='gelu'):
         super().__init__()
-        torch.set_default_device('cuda')
+        #torch.set_default_device('cuda')
         self.input_bn = nn.BatchNorm1d(input_dim) if normalize_input else None
         module_list = []
         for dim in dims:
@@ -589,7 +595,7 @@ class PairEmbed(nn.Module):
             normalize_input=True, activation='gelu', eps=1e-8,
             for_onnx=False):
         super().__init__()
-        torch.set_default_device('cuda')
+        #torch.set_default_device('cuda')
         self.pairwise_lv_dim = pairwise_lv_dim
         self.pairwise_input_dim = pairwise_input_dim
         self.is_symmetric = (pairwise_lv_dim <= 5) and (pairwise_input_dim == 0)
@@ -699,14 +705,14 @@ class PairEmbed(nn.Module):
         return y
 
 
-class Block(nn.Module):
+class GLABlock(nn.Module):
     def __init__(self, embed_dim=128, num_heads=8, ffn_ratio=4,
                  dropout=0.1, attn_dropout=0.1, activation_dropout=0.1,
                  add_bias_kv=False, activation='gelu',
                  scale_fc=True, scale_attn=True, scale_heads=True, scale_resids=True,
                  return_pre_softmax=False, gate_low_rank_dim=4):
         super().__init__()
-        torch.set_default_device('cuda')
+        #torch.set_default_device('cuda')
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
@@ -762,15 +768,19 @@ class Block(nn.Module):
             u = torch.cat(tensors=(x_cls, x), dim=0)  # (seq_len+1, batch, embed_dim)
             u = self.pre_attn_norm(u)
 
+            # x_cls padded to (seq_len+1, batch, embed_dim)
+            cls_padding = torch.zeros(x.shape)
+            x_cls_padded = torch.cat((x_cls, cls_padding), dim=0)
+
             if self.return_pre_softmax:
                 x, _, pre_softmax_attention, pre_softmax_interaction = self.attn(
-                    q=x_cls, k=u, v=u, attention_mask=padding_mask,
+                    hidden_states=x_cls_padded, k=u, v=u, attention_mask=padding_mask,
                     )
                 #pre_softmax_attention.cpu().detach()
                 #pre_softmax_interaction.cpu().detach()
             else:
 
-                x = self.attn(q=x_cls, k=u, v=u, attention_mask=padding_mask)[0]  # (1, batch, embed_dim)
+                x = self.attn(hidden_states=x_cls_padded, k=u, v=u, attention_mask=padding_mask)[0][0]  # (1, batch, embed_dim)
 
             pre_softmax_attention = None
             pre_softmax_interaction = None
@@ -794,7 +804,134 @@ class Block(nn.Module):
             
             else:
                 x = self.attn(
-                    q=x, k=x, v=x, attention_mask=padding_mask)[0]  # (seq_len, batch, embed_dim)
+                    hidden_states=x, k=x, v=x, attention_mask=padding_mask)[0]  # (seq_len, batch, embed_dim)
+
+        assert isinstance(x, Tensor), f'x should be a Tensor but got {type(x)}\n{x}'
+
+        if self.c_attn is not None:
+            tgt_len = x.size(0)
+            x = x.view(tgt_len, -1, self.num_heads, self.head_dim)
+            x = torch.einsum('tbhd,h->tbdh', x, self.c_attn)
+            x = x.reshape(tgt_len, -1, self.embed_dim)
+        if self.post_attn_norm is not None:
+            x = self.post_attn_norm(x)
+        x = self.dropout(x)
+        x += residual
+
+        residual = x
+        x = self.pre_fc_norm(x)
+        x = self.act(self.fc1(x))
+        x = self.act_dropout(x)
+        if self.post_fc_norm is not None:
+            x = self.post_fc_norm(x)
+        x = self.fc2(x)
+        x = self.dropout(x)
+        if self.w_resid is not None:
+            residual = torch.mul(self.w_resid, residual)
+        x += residual
+
+        if self.return_pre_softmax:
+            return x, pre_softmax_attention, pre_softmax_interaction
+        else:
+            return x
+
+class MHABlock(nn.Module):
+    def __init__(self, embed_dim=128, num_heads=8, ffn_ratio=4,
+                 dropout=0.1, attn_dropout=0.1, activation_dropout=0.1,
+                 add_bias_kv=False, activation='gelu',
+                 scale_fc=True, scale_attn=True, scale_heads=True, scale_resids=True,
+                 return_pre_softmax=False, gate_low_rank_dim=4):
+        super().__init__()
+        #torch.set_default_device('cuda')
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        self.ffn_dim = embed_dim * ffn_ratio
+        self.interaction = None
+        self.gate_low_rank_dim = gate_low_rank_dim
+        self.pre_mask_attn_weights = None  # To store attention weights before mask is applied
+        self.return_pre_softmax = return_pre_softmax
+
+        self.pre_attn_norm = nn.LayerNorm(embed_dim)
+        self.attn = MultiheadAttention(
+            embed_dim,
+            num_heads,
+            dropout=attn_dropout,
+            add_bias_kv=add_bias_kv,
+        )
+        self.post_attn_norm = nn.LayerNorm(embed_dim) if scale_attn else None
+        self.dropout = nn.Dropout(dropout)
+
+        self.pre_fc_norm = nn.LayerNorm(embed_dim)
+        self.fc1 = nn.Linear(embed_dim, self.ffn_dim)
+        self.act = nn.GELU() if activation == 'gelu' else nn.ReLU()
+        self.act_dropout = nn.Dropout(activation_dropout)
+        self.post_fc_norm = nn.LayerNorm(self.ffn_dim) if scale_fc else None
+        self.fc2 = nn.Linear(self.ffn_dim, embed_dim)
+
+        self.c_attn = nn.Parameter(torch.ones(num_heads), requires_grad=True) if scale_heads else None
+        self.w_resid = nn.Parameter(torch.ones(embed_dim), requires_grad=True) if scale_resids else None
+    def getAttention(self):
+        return self.interaction
+    def getPreMaskAttention(self):
+        return self.pre_mask_attn_weights
+    def forward(self, x, x_cls=None, padding_mask=None, attn_mask=None):
+        """
+        Args:
+            x (Tensor): input to the layer of shape (seq_len, batch, embed_dim)
+            x_cls (Tensor, optional): class token input to the layer of shape (1, batch, embed_dim)
+            padding_mask (ByteTensor, optional): binary
+                ByteTensor of shape (batch, seq_len) where padding
+                elements are indicated by `1.
+
+        Returns:
+            encoded output of shape (seq_len, batch, embed_dim)
+        """
+
+        if x_cls is not None:
+            with torch.no_grad():
+                # prepend one element for x_cls: -> (batch, 1+seq_len)
+                padding_mask = torch.cat((torch.zeros_like(padding_mask[:, :1]), padding_mask), dim=1)
+            # class attention: https://arxiv.org/pdf/2103.17239.pdf
+            residual = x_cls
+            assert isinstance(x_cls, Tensor), "x_cls should be a Tensor"
+            assert isinstance(x, Tensor), "x should be a Tensor"
+            u = torch.cat(tensors=(x_cls, x), dim=0)  # (seq_len+1, batch, embed_dim)
+            u = self.pre_attn_norm(u)
+
+            if self.return_pre_softmax:
+                x, _, pre_softmax_attention, pre_softmax_interaction = self.attn(
+                    x_cls, u, u, key_padding_mask=padding_mask,
+                    )
+                #pre_softmax_attention.cpu().detach()
+                #pre_softmax_interaction.cpu().detach()
+            else:
+
+                x = self.attn(x_cls, u, u, key_padding_mask=padding_mask)[0]  # (1, batch, embed_dim)
+
+            pre_softmax_attention = None
+            pre_softmax_interaction = None
+        else:
+            residual = x
+
+            x = self.pre_attn_norm(x)
+
+            if self.return_pre_softmax:
+                x, y = self.attn(
+                    x, x, x, key_padding_mask=padding_mask,
+                    attn_mask=attn_mask, average_attn_weights=False)
+                #y = self.attn(x, x, x, key_padding_mask=padding_mask,
+                #    attn_mask=attn_mask, average_attn_weights=False, return_pre_softmax=self.return_pre_softmax)[1]
+                #pre_softmax_attention = self.attn(x, x, x, key_padding_mask=padding_mask, 
+                #    attn_mask=attn_mask, average_attn_weights=False, return_pre_softmax=self.return_pre_softmax)[2]
+                #pre_softmax_interaction = self.attn(x, x, x, key_padding_mask=padding_mask,
+                #    attn_mask=attn_mask, average_attn_weights=False, return_pre_softmax=self.return_pre_softmax)[3]
+                #pre_softmax_attention.cpu().detach()
+                #pre_softmax_interaction.cpu().detach()
+            
+            else:
+                x = self.attn(
+                    x, x, x, key_padding_mask=padding_mask)  # (seq_len, batch, embed_dim)
 
         assert isinstance(x, Tensor), f'x should be a Tensor but got {type(x)}\n{x}'
 
@@ -852,7 +989,7 @@ class ParticleTransformer(nn.Module):
                  return_pre_softmax=False,
                  **kwargs) -> None:
         super().__init__(**kwargs)
-        torch.set_default_device('cuda')
+        #torch.set_default_device('cuda')
         self.trimmer = SequenceTrimmer(enabled=trim and not for_inference)
         self.attention_matrix = []
         self.for_inference = for_inference
@@ -870,6 +1007,14 @@ class ParticleTransformer(nn.Module):
         _logger.info('cfg_block: %s' % str(cfg_block))
 
         cfg_cls_block = copy.deepcopy(default_cfg)
+        # tells it to act like a typical MHA block
+        cfg_cls_block = dict(embed_dim=embed_dim, num_heads=num_heads, ffn_ratio=4,
+                           dropout=0.1, attn_dropout=0.1, activation_dropout=0.1,
+                           add_bias_kv=False, activation=activation,
+                           scale_fc=True, scale_attn=True, scale_heads=True, scale_resids=True,
+                           return_pre_softmax=self.return_pre_softmax)
+        gla_cfg_cls_block = dict(embed_dim=embed_dim, num_heads=num_heads, 
+                                gate_low_rank_dim=4,)
         if cls_block_params is not None:
             cfg_cls_block.update(cls_block_params)
         _logger.info('cfg_cls_block: %s' % str(cfg_cls_block))
@@ -880,8 +1025,8 @@ class ParticleTransformer(nn.Module):
             pair_input_dim, pair_extra_dim, pair_embed_dims + [cfg_block['num_heads']],
             remove_self_pair=remove_self_pair, use_pre_activation_pair=use_pre_activation_pair,
             for_onnx=for_inference) if pair_embed_dims is not None and pair_input_dim + pair_extra_dim > 0 else None
-        self.blocks = nn.ModuleList([Block(**cfg_block) for _ in range(num_layers)])
-        self.cls_blocks = nn.ModuleList([Block(**cfg_cls_block) for _ in range(num_cls_layers)])
+        self.blocks = nn.ModuleList([GLABlock(**cfg_block) for _ in range(num_layers)])
+        self.cls_blocks = nn.ModuleList([GLABlock(**gla_cfg_cls_block) for _ in range(num_cls_layers)])
         self.norm = nn.LayerNorm(embed_dim)
         self.interactionMatrix = None
 
@@ -967,174 +1112,10 @@ class ParticleTransformer(nn.Module):
 
             return output
 
-class ParticleTransformerTagger(nn.Module):
-
-    def __init__(self,
-                 pf_input_dim,
-                 sv_input_dim,
-                 num_classes=None,
-                 # network configurations
-                 pair_input_dim=4,
-                 pair_extra_dim=0,
-                 remove_self_pair=False,
-                 use_pre_activation_pair=True,
-                 embed_dims=[128, 512, 128],
-                 pair_embed_dims=[64, 64, 64],
-                 num_heads=8,
-                 num_layers=8,
-                 num_cls_layers=2,
-                 block_params=None,
-                 cls_block_params={'dropout': 0, 'attn_dropout': 0, 'activation_dropout': 0},
-                 fc_params=[],
-                 activation='gelu',
-                 # misc
-                 trim=True,
-                 for_inference=False,
-                 use_amp=False,
-                 **kwargs) -> None:
-        super().__init__(**kwargs)
-
-        self.use_amp = use_amp
-
-        self.pf_trimmer = SequenceTrimmer(enabled=trim and not for_inference)
-        self.sv_trimmer = SequenceTrimmer(enabled=trim and not for_inference)
-
-        self.pf_embed = Embed(pf_input_dim, embed_dims, activation=activation)
-        self.sv_embed = Embed(sv_input_dim, embed_dims, activation=activation)
-
-        self.part = ParticleTransformer(input_dim=embed_dims[-1],
-                                        num_classes=num_classes,
-                                        # network configurations
-                                        pair_input_dim=pair_input_dim,
-                                        pair_extra_dim=pair_extra_dim,
-                                        remove_self_pair=remove_self_pair,
-                                        use_pre_activation_pair=use_pre_activation_pair,
-                                        embed_dims=[],
-                                        pair_embed_dims=pair_embed_dims,
-                                        num_heads=num_heads,
-                                        num_layers=num_layers,
-                                        num_cls_layers=num_cls_layers,
-                                        block_params=block_params,
-                                        cls_block_params=cls_block_params,
-                                        fc_params=fc_params,
-                                        activation=activation,
-                                        # misc
-                                        trim=False,
-                                        for_inference=for_inference,
-                                        use_amp=use_amp)
-
-    @torch.jit.ignore
-    def no_weight_decay(self):
-        return {'part.cls_token', }
-
-    def forward(self, pf_x, pf_v=None, pf_mask=None, sv_x=None, sv_v=None, sv_mask=None):
-        # x: (N, C, P)
-        # v: (N, 4, P) [px,py,pz,energy]
-        # mask: (N, 1, P) -- real particle = 1, padded = 0
-
-        with torch.no_grad():
-            pf_x, pf_v, pf_mask, _ = self.pf_trimmer(pf_x, pf_v, pf_mask)
-            sv_x, sv_v, sv_mask, _ = self.sv_trimmer(sv_x, sv_v, sv_mask)
-            v = torch.cat([pf_v, sv_v], dim=2)
-            mask = torch.cat([pf_mask, sv_mask], dim=2)
-
-        with torch.amp.autocast('cuda', enabled=self.use_amp):
-            pf_x = self.pf_embed(pf_x)  # after embed: (seq_len, batch, embed_dim)
-            sv_x = self.sv_embed(sv_x)
-            x = torch.cat([pf_x, sv_x], dim=0)
-
-            return self.part(x, v, mask)
-
-
-class ParticleTransformerTaggerWithExtraPairFeatures(nn.Module):
-
-    def __init__(self,
-                 pf_input_dim,
-                 sv_input_dim,
-                 num_classes=None,
-                 # network configurations
-                 pair_input_dim=4,
-                 pair_extra_dim=0,
-                 remove_self_pair=False,
-                 use_pre_activation_pair=True,
-                 embed_dims=[128, 512, 128],
-                 pair_embed_dims=[64, 64, 64],
-                 num_heads=8,
-                 num_layers=8,
-                 num_cls_layers=2,
-                 block_params=None,
-                 cls_block_params={'dropout': 0, 'attn_dropout': 0, 'activation_dropout': 0},
-                 fc_params=[],
-                 activation='gelu',
-                 # misc
-                 trim=True,
-                 for_inference=False,
-                 use_amp=False,
-                 **kwargs) -> None:
-        super().__init__(**kwargs)
-
-        self.use_amp = use_amp
-        self.for_inference = for_inference
-
-        self.pf_trimmer = SequenceTrimmer(enabled=trim and not for_inference)
-        self.sv_trimmer = SequenceTrimmer(enabled=trim and not for_inference)
-
-        self.pf_embed = Embed(pf_input_dim, embed_dims, activation=activation)
-        self.sv_embed = Embed(sv_input_dim, embed_dims, activation=activation)
-
-        self.part = ParticleTransformer(input_dim=embed_dims[-1],
-                                        num_classes=num_classes,
-                                        # network configurations
-                                        pair_input_dim=pair_input_dim,
-                                        pair_extra_dim=pair_extra_dim,
-                                        remove_self_pair=remove_self_pair,
-                                        use_pre_activation_pair=use_pre_activation_pair,
-                                        embed_dims=[],
-                                        pair_embed_dims=pair_embed_dims,
-                                        num_heads=num_heads,
-                                        num_layers=num_layers,
-                                        num_cls_layers=num_cls_layers,
-                                        block_params=block_params,
-                                        cls_block_params=cls_block_params,
-                                        fc_params=fc_params,
-                                        activation=activation,
-                                        # misc
-                                        trim=False,
-                                        for_inference=for_inference,
-                                        use_amp=use_amp)
-
-    @torch.jit.ignore
-    def no_weight_decay(self):
-        return {'part.cls_token', }
-
-    def forward(self, pf_x, pf_v=None, pf_mask=None, sv_x=None, sv_v=None, sv_mask=None, pf_uu=None, pf_uu_idx=None):
-        # x: (N, C, P)
-        # v: (N, 4, P) [px,py,pz,energy]
-        # mask: (N, 1, P) -- real particle = 1, padded = 0
-
-        with torch.no_grad():
-            if not self.for_inference:
-                if pf_uu_idx is not None:
-                    pf_uu = build_sparse_tensor(pf_uu, pf_uu_idx, pf_x.size(-1))
-
-            pf_x, pf_v, pf_mask, pf_uu = self.pf_trimmer(pf_x, pf_v, pf_mask, pf_uu)
-            sv_x, sv_v, sv_mask, _ = self.sv_trimmer(sv_x, sv_v, sv_mask)
-            v = torch.cat([pf_v, sv_v], dim=2)
-            mask = torch.cat([pf_mask, sv_mask], dim=2)
-            uu = torch.zeros(v.size(0), pf_uu.size(1), v.size(2), v.size(2), dtype=v.dtype, device=v.device)
-            uu[:, :, :pf_x.size(2), :pf_x.size(2)] = pf_uu
-
-        with torch.amp.autocast('cuda',enabled=self.use_amp):
-            pf_x = self.pf_embed(pf_x)  # after embed: (seq_len, batch, embed_dim)
-            sv_x = self.sv_embed(sv_x)
-            x = torch.cat([pf_x, sv_x], dim=0)
-
-            return self.part(x, v, mask, uu)
-
 class ParticleTransformerWrapper(torch.nn.Module):
     def __init__(self, **kwargs) -> None:
         super().__init__()
-        torch.set_default_device('cuda')
+        #torch.set_default_device('cuda')
         self.mod = ParticleTransformer(**kwargs)
         self.kwargs = kwargs
         self.attention_matrix = None
@@ -1158,6 +1139,9 @@ class ParticleTransformerWrapper(torch.nn.Module):
     def get_interactionMatrix(self):
 
         return self.interactionMatrix
+
+def get_loss(data_config, **kwargs):
+    return torch.nn.CrossEntropyLoss()
 
 # %%
 def get_model(model_type='qg',**kwargs):
