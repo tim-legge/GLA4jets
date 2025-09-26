@@ -772,6 +772,8 @@ class GLABlock(nn.Module):
             cls_padding = torch.zeros(x.shape, device=x.device, dtype=x.dtype)
             x_cls_padded = torch.cat((x_cls, cls_padding), dim=0)
 
+            assert x_cls_padded.shape == u.shape, f"x_cls_padded and u should have the same shape, but got x_cls_padded:{x_cls_padded.shape} and u:{u.shape}"
+
             if self.return_pre_softmax:
                 x, _, pre_softmax_attention, pre_softmax_interaction = self.attn(
                     hidden_states=x_cls_padded, k=u, v=u, attention_mask=padding_mask,
