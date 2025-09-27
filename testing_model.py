@@ -778,6 +778,7 @@ class GLABlock(nn.Module):
             else:
 
                 x = self.attn(hidden_states=u, k=u, v=u, attention_mask=padding_mask)[0]  # (1, batch, embed_dim)
+                x = x[0,:,:]
                 assert x.shape[0] == 1, f"x.shape={x.shape}"
 
             pre_softmax_attention = None
