@@ -1089,6 +1089,7 @@ class ParticleTransformer(nn.Module):
                 #if num == 0 :
                 self.attention_matrix.append(block.interaction)
                 #num = num + 1
+                print('Ran particle GLA block')
 
             # extract class token
             cls_tokens = self.cls_token.expand(1, x.size(1), -1)  # (1, N, C)
