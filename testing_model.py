@@ -777,7 +777,8 @@ class GLABlock(nn.Module):
                 #pre_softmax_interaction.cpu().detach()
             else:
 
-                x = self.attn(hidden_states=u, k=u, v=u, attention_mask=padding_mask)[0][0]  # (1, batch, embed_dim)
+                x = self.attn(hidden_states=u, k=u, v=u, attention_mask=padding_mask)[0]  # (1, batch, embed_dim)
+                assert x.shape[0] == 1, f"x.shape={x.shape}"
 
             pre_softmax_attention = None
             pre_softmax_interaction = None
