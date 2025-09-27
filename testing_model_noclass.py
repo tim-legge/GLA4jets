@@ -1015,7 +1015,7 @@ class ParticleTransformer(nn.Module):
             remove_self_pair=remove_self_pair, use_pre_activation_pair=use_pre_activation_pair,
             for_onnx=for_inference) if pair_embed_dims is not None and pair_input_dim + pair_extra_dim > 0 else None
         self.blocks = nn.ModuleList([GLABlock(**cfg_block) for _ in range(num_layers)])
-        self.cls_blocks = nn.ModuleList([MHABlock(**cfg_cls_block) for _ in range(num_cls_layers)])
+        self.cls_blocks = nn.ModuleList([GLABlock(**cfg_cls_block) for _ in range(num_cls_layers)])
         self.norm = nn.LayerNorm(embed_dim)
         self.interactionMatrix = None
 

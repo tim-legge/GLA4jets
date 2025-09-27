@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import triton
 import torch
 from weaver.utils.logger import _logger
 
@@ -768,21 +769,15 @@ class GLABlock(nn.Module):
             u = torch.cat(tensors=(x_cls, x), dim=0)  # (seq_len+1, batch, embed_dim)
             u = self.pre_attn_norm(u)
 
-            # x_cls padded to (seq_len+1, batch, embed_dim)
-            cls_padding = torch.zeros(x.shape, device=x.device, dtype=x.dtype)
-            x_cls_padded = torch.cat((x_cls, cls_padding), dim=0)
-
-            assert x_cls_padded.shape == u.shape, f"x_cls_padded and u should have the same shape, but got x_cls_padded:{x_cls_padded.shape} and u:{u.shape}"
-
             if self.return_pre_softmax:
                 x, _, pre_softmax_attention, pre_softmax_interaction = self.attn(
-                    hidden_states=x_cls_padded, k=u, v=u, attention_mask=padding_mask,
+                    hidden_states=u, k=u, v=u, attention_mask=padding_mask,
                     )
                 #pre_softmax_attention.cpu().detach()
                 #pre_softmax_interaction.cpu().detach()
             else:
 
-                x = self.attn(hidden_states=x_cls_padded, k=u, v=u, attention_mask=padding_mask)[0][0]  # (1, batch, embed_dim)
+                x = self.attn(hidden_states=u, k=u, v=u, attention_mask=padding_mask)[0][0]  # (1, batch, embed_dim)
 
             pre_softmax_attention = None
             pre_softmax_interaction = None
