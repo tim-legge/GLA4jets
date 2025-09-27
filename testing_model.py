@@ -813,6 +813,7 @@ class GLABlock(nn.Module):
         if self.post_attn_norm is not None:
             x = self.post_attn_norm(x)
         x = self.dropout(x)
+        assert x.shape == residual.shape, f"x.shape={x.shape}, residual.shape={residual.shape}"
         x += residual
 
         residual = x
