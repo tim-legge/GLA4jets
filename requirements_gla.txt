@@ -1,0 +1,34 @@
+# Core PyTorch and ML libraries
+torch>=2.0.0
+torchvision
+numpy>=1.21.0
+scikit-learn>=1.0.0
+matplotlib>=3.5.0
+
+# Flash Linear Attention (main dependency)
+flash-linear-attention
+# Alternative install: pip install git+https://github.com/sustcsonglin/flash-linear-attention.git
+
+# Additional utilities
+einops>=0.6.0
+tqdm
+transformers>=4.20.0
+
+# Optional: for FLOP counting
+ptflops
+
+# Development and logging
+tensorboard
+wandb  # Optional: for experiment tracking
+
+# Data handling
+h5py
+pandas
+
+# Visualization
+seaborn
+plotly
+
+# For CUDA operations (if using GPU)
+# Note: Install appropriate CUDA version for your system
+# Example: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118

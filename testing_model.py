@@ -713,7 +713,7 @@ class GLABlock(nn.Module):
                  scale_fc=True, scale_attn=True, scale_heads=True, scale_resids=True,
                  return_pre_softmax=False, gate_low_rank_dim=4):
         super().__init__()
-        #torch.set_default_device('cuda')
+        
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
