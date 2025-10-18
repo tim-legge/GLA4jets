@@ -7,7 +7,7 @@ This script demonstrates how to use the model with synthetic data
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from gla_transformer import create_gla_model
+from networks.gla_transformer import create_gla_model
 
 def create_synthetic_jet_data(
     num_samples: int = 1000,

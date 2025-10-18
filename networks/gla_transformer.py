@@ -3,7 +3,10 @@
 Gated Linear Attention Transformer for Jet Classification
 Based on the flash-linear-attention package and DeltaNet-inspired architecture
 """
-
+import weaver
+import copy
+import random
+from weaver.utils.logger import _logger
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -20,9 +23,9 @@ except ImportError:
     
     # Fallback implementations if fla is not available
     class RMSNorm(nn.Module):
-        def __init__(self, hidden_size, eps=1e-5):
+        def __init__(self, embed_dim, eps=1e-5):
             super().__init__()
-            self.weight = nn.Parameter(torch.ones(hidden_size))
+            self.weight = nn.Parameter(torch.ones(embed_dim))
             self.eps = eps
             
         def forward(self, x):
@@ -32,17 +35,17 @@ except ImportError:
     
     class GatedLinearAttention(nn.Module):
         """Simplified GLA implementation for fallback"""
-        def __init__(self, hidden_size=128, num_heads=8, **kwargs):
+        def __init__(self, embed_dim=128, num_heads=8, **kwargs):
             super().__init__()
-            self.hidden_size = hidden_size
+            self.embed_dim = embed_dim
             self.num_heads = num_heads
-            self.head_dim = hidden_size // num_heads
+            self.head_dim = embed_dim // num_heads
             
-            self.q_proj = nn.Linear(hidden_size, hidden_size, bias=False)
-            self.k_proj = nn.Linear(hidden_size, hidden_size, bias=False)
-            self.v_proj = nn.Linear(hidden_size, hidden_size, bias=False)
-            self.g_proj = nn.Linear(hidden_size, hidden_size, bias=False)
-            self.o_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+            self.q_proj = nn.Linear(embed_dim, embed_dim, bias=False)
+            self.k_proj = nn.Linear(embed_dim, embed_dim, bias=False)
+            self.v_proj = nn.Linear(embed_dim, embed_dim, bias=False)
+            self.g_proj = nn.Linear(embed_dim, embed_dim, bias=False)
+            self.o_proj = nn.Linear(embed_dim, embed_dim, bias=False)
             
             self.gate_norm = RMSNorm(self.head_dim)
             
@@ -70,6 +73,56 @@ except ImportError:
             out = out.transpose(1, 2).contiguous().view(B, L, D)
             return self.o_proj(out), None, None
 
+class SequenceTrimmer(nn.Module):
+
+    def __init__(self, enabled=False, target=(0.9, 1.02), **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.enabled = enabled
+        self.target = target
+        self._counter = 0
+
+    def forward(self, x, v=None, mask=None, uu=None):
+        # x: (N, C, P)
+        # mask: (N, 1, P) -- real particle = 1, padded = 0
+
+        # (Not used in this implementation:)
+        # v: (N, 4, P) [px,py,pz,energy]
+        # uu: (N, C', P, P)
+        if mask is None:
+            mask = torch.ones_like(x[:, :1])
+        mask = mask.bool()
+
+        if self.enabled:
+            if self._counter < 5:
+                self._counter += 1
+            else:
+                if self.training:
+                    q = min(1, random.uniform(*self.target))
+                    maxlen = torch.quantile(mask.type_as(x).sum(dim=-1), q).long()
+                    rand = torch.rand_like(mask.type_as(x))
+                    rand.masked_fill_(~mask, -1)
+                    perm = rand.argsort(dim=-1, descending=True)  # (N, 1, P)
+                    mask = torch.gather(mask, -1, perm)
+                    x = torch.gather(x, -1, perm.expand_as(x))
+                    if v is not None:
+                        v = torch.gather(v, -1, perm.expand_as(v))
+                    if uu is not None:
+                        uu = torch.gather(uu, -2, perm.unsqueeze(-1).expand_as(uu))
+                        uu = torch.gather(uu, -1, perm.unsqueeze(-2).expand_as(uu))
+                else:
+                    maxlen = mask.sum(dim=-1).max()
+                maxlen = max(maxlen, 1)
+                if maxlen < mask.size(-1):
+                    mask = mask[:, :, :maxlen]
+                    x = x[:, :, :maxlen]
+                    if v is not None:
+                        v = v[:, :, :maxlen]
+                    if uu is not None:
+                        uu = uu[:, :, :maxlen, :maxlen]
+
+        return x, mask
+
+
 class SwiGLU(nn.Module):
     """Swish-Gated Linear Unit activation function"""
     def __init__(self, dim_in: int, dim_out: int, bias: bool = True):
@@ -93,7 +146,7 @@ class GLABlock(nn.Module):
     """
     def __init__(
         self,
-        hidden_size: int = 128,
+        embed_dim: int = 128,
         num_heads: int = 8,
         expand_ratio: float = 4.0,
         dropout: float = 0.1,
@@ -101,32 +154,32 @@ class GLABlock(nn.Module):
         **gla_kwargs
     ):
         super().__init__()
-        self.hidden_size = hidden_size
+        self.embed_dim = embed_dim
         self.layer_idx = layer_idx
         
         # Pre-norm for attention
-        self.attn_norm = RMSNorm(hidden_size)
+        self.attn_norm = RMSNorm(embed_dim)
         
         # Gated Linear Attention layer
         self.gla = GatedLinearAttention(
-            hidden_size=hidden_size,
+            embed_dim=embed_dim,
             num_heads=num_heads,
             layer_idx=layer_idx,
             **gla_kwargs
         )
         
         # Pre-norm for FFN
-        self.ffn_norm = RMSNorm(hidden_size)
+        self.ffn_norm = RMSNorm(embed_dim)
         
         # Feed-forward network with SwiGLU
-        ffn_dim = int(hidden_size * expand_ratio)
-        self.ffn = SwiGLU(hidden_size, ffn_dim)
+        ffn_dim = int(embed_dim * expand_ratio)
+        self.ffn = SwiGLU(embed_dim, ffn_dim)
         
         # Dropout
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
         
     def forward(self, x, attention_mask=None, **kwargs):
-        # Self-attention with residual connection
+        # Self-GLA with residual connection
         residual = x
         x = self.attn_norm(x)
         attn_out, _, _ = self.gla(x, attention_mask=attention_mask, **kwargs)
@@ -148,29 +201,32 @@ class InputEmbedding(nn.Module):
     def __init__(
         self,
         input_dim: int = 17,
-        hidden_size: int = 128,
+        embed_dim: int = 128,
         max_seq_len: int = 128,
         dropout: float = 0.1
     ):
         super().__init__()
         self.input_dim = input_dim
-        self.hidden_size = hidden_size
+        self.embed_dim = embed_dim
         
         # Feature embedding
-        self.feature_projection = nn.Linear(input_dim, hidden_size)
+        self.feature_projection = nn.Linear(input_dim, embed_dim)
         
         # Positional embedding (learnable)
-        #self.pos_embedding = nn.Parameter(torch.randn(1, max_seq_len, hidden_size) * 0.02)
+        #self.pos_embedding = nn.Parameter(torch.randn(1, max_seq_len, embed_dim) * 0.02)
         
         # Layer normalization and dropout
-        self.norm = nn.LayerNorm(hidden_size)
+        self.norm = nn.LayerNorm(embed_dim)
         self.dropout = nn.Dropout(dropout)
         
     def forward(self, x, mask=None):
         """
         Args:
             x: Input features [batch_size, seq_len, input_dim]  
-            mask: Attention mask [batch_size, seq_len]
+            mask: Attention mask [batch_size, seq_len], 1 for valid
+        
+        Returns:
+            embedded features of shape `(batch_size, seq_len, embed_dim)`
         """
         batch_size, seq_len, _ = x.shape
         
@@ -205,7 +261,7 @@ class GLATransformer(nn.Module):
     def __init__(
         self,
         input_dim: int = 17,
-        hidden_size: int = 128,
+        embed_dim: int = 128,
         num_layers: int = 6,
         num_heads: int = 8,
         num_classes: int = 5,
@@ -214,18 +270,23 @@ class GLATransformer(nn.Module):
         dropout: float = 0.1,
         use_short_conv: bool = True,
         conv_size: int = 4,
+        trim=True,
+        for_inference: bool = False,
         **gla_kwargs
     ):
         super().__init__()
         
-        self.hidden_size = hidden_size
+        self.embed_dim = embed_dim
         self.num_layers = num_layers
         self.num_classes = num_classes
         
+        # Token trimming
+        self.trimmer = SequenceTrimmer(enabled=trim and not for_inference)
+
         # Input embedding
         self.embedding = InputEmbedding(
             input_dim=input_dim,
-            hidden_size=hidden_size,
+            embed_dim=embed_dim,
             max_seq_len=max_seq_len,
             dropout=dropout
         )
@@ -233,7 +294,7 @@ class GLATransformer(nn.Module):
         # Stack of GLA blocks
         self.blocks = nn.ModuleList([
             GLABlock(
-                hidden_size=hidden_size,
+                embed_dim=embed_dim,
                 num_heads=num_heads,
                 expand_ratio=expand_ratio,
                 dropout=dropout,
@@ -246,14 +307,14 @@ class GLATransformer(nn.Module):
         ])
         
         # Final normalization
-        self.final_norm = RMSNorm(hidden_size)
+        self.final_norm = RMSNorm(embed_dim)
         
         # Classification head
         self.classifier = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
+            nn.Linear(embed_dim, embed_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_size, num_classes)
+            nn.Linear(embed_dim, num_classes)
         )
         
         # Initialize weights
@@ -275,20 +336,25 @@ class GLATransformer(nn.Module):
         Forward pass
         
         Args:
-            x: Input particle features [batch_size, seq_len, input_dim]
-            mask: Attention mask [batch_size, seq_len] (1 for valid, 0 for padded)
+            x: Input particle features `[batch_size, input_dim, seq_len]`
+            mask: Attention mask `[batch_size, 1, seq_len]` (1 for valid, 0 for padded)
             return_features: Whether to return intermediate features
             
         Returns:
             logits: Classification logits [batch_size, num_classes]
             features: Pooled features if return_features=True
         """
+
+        with torch.no_grad():
+            x, mask = self.trimmer(x, mask=mask)
+            padding_mask = mask.squeeze(1)
+
         # Input embedding
         x = self.embedding(x, mask)
         
         # Pass through GLA blocks
         for block in self.blocks:
-            x = block(x, attention_mask=mask)
+            x = block(x, attention_mask=padding_mask)
             
         # Final normalization
         x = self.final_norm(x)
@@ -306,11 +372,19 @@ class GLATransformer(nn.Module):
         """Get number of trainable parameters"""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
+class GLATransformerWrapper(nn.Module):
+    def __init__(self, **kwargs) -> None:
+        super().__init__()
+        self.mod = GLATransformer(**kwargs)
+
+    def forward(self, features, mask):
+        return self.mod(x=features, mask=mask)
+
 
 def create_gla_model(
     dataset: str = "hls4ml",
     input_dim: int = 17,
-    hidden_size: int = 128,
+    embed_dim: int = 128,
     num_layers: int = 6,
     num_heads: int = 8,
     **kwargs
@@ -334,7 +408,7 @@ def create_gla_model(
     
     model = GLATransformer(
         input_dim=input_dim,
-        hidden_size=hidden_size,
+        embed_dim=embed_dim,
         num_layers=num_layers,
         num_heads=num_heads,
         num_classes=num_classes,
@@ -344,7 +418,7 @@ def create_gla_model(
     
     print(f"Created GLA model for {dataset} dataset:")
     print(f"  - Input dim: {input_dim}")
-    print(f"  - Hidden size: {hidden_size}")
+    print(f"  - Embedding dimension: {embed_dim}")
     print(f"  - Num layers: {num_layers}")
     print(f"  - Num heads: {num_heads}")
     print(f"  - Num classes: {num_classes}")
@@ -362,7 +436,7 @@ if __name__ == "__main__":
     # Test with HLS4ML configuration
     model = create_gla_model(
         dataset="jetclass",
-        hidden_size=128,
+        embed_dim=128,
         num_layers=6,
         num_heads=8
     )
@@ -382,3 +456,43 @@ if __name__ == "__main__":
         print(f"Output shape: {logits.shape}")
         
     print("GLA Transformer test completed successfully!")
+
+
+def get_model(data_config, **kwargs):
+
+    cfg = dict(
+        input_dim=len(data_config.input_dicts['pf_features']),
+        num_classes=len(data_config.label_value),
+        # network configurations
+        #pair_input_dim=4,
+        #use_pre_activation_pair=False,
+        embed_dim=128,
+        #pair_embed_dims=[64, 64, 64],
+        num_heads=4,
+        num_layers=4,
+        #num_cls_layers=2,
+        block_params={'dropout': 0.2},
+        #cls_block_params={'dropout': 0.2, 'attn_dropout': 0.2, 'activation_dropout': 0.2},
+        #fc_params=[],
+        #activation='gelu',
+        # misc
+        trim=True,
+        for_inference=False,
+    )
+    cfg.update(**kwargs)
+    _logger.info('Model config: %s' % str(cfg))
+
+    model = GLATransformerWrapper(**cfg)
+
+    model_info = {
+        'input_names': list(data_config.input_names),
+        'input_shapes': {k: ((1,) + s[1:]) for k, s in data_config.input_shapes.items()},
+        'output_names': ['softmax'],
+        'dynamic_axes': {**{k: {0: 'N', 2: 'n_' + k.split('_')[0]} for k in data_config.input_names}, **{'softmax': {0: 'N'}}},
+    }
+
+    return model, model_info
+
+
+def get_loss(data_config, **kwargs):
+        return torch.nn.CrossEntropyLoss()

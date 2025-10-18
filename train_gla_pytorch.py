@@ -23,7 +23,7 @@ from sklearn.metrics import accuracy_score, roc_curve, auc, roc_auc_score
 import matplotlib.pyplot as plt
 
 # Import our GLA transformer
-from gla_transformer import GLATransformer, create_gla_model
+from networks.gla_transformer import GLATransformer, create_gla_model
 
 
 def set_seed(seed: int = 42):
