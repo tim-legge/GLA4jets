@@ -162,7 +162,7 @@ class GLABlock(nn.Module):
         
         # Gated Linear Attention layer
         self.gla = GatedLinearAttention(
-            embed_dim=embed_dim,
+            hidden_size=embed_dim,
             num_heads=num_heads,
             layer_idx=layer_idx,
             **gla_kwargs
@@ -172,8 +172,8 @@ class GLABlock(nn.Module):
         self.ffn_norm = RMSNorm(embed_dim)
         
         # Feed-forward network with SwiGLU
-        ffn_dim = int(embed_dim * expand_ratio)
-        self.ffn = SwiGLU(embed_dim, ffn_dim)
+        #ffn_dim = int(embed_dim * expand_ratio)
+        self.ffn = SwiGLU(embed_dim, embed_dim)
         
         # Dropout
         self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
@@ -222,15 +222,16 @@ class InputEmbedding(nn.Module):
     def forward(self, x, mask=None):
         """
         Args:
-            x: Input features [batch_size, seq_len, input_dim]  
+            x: Input features [batch_size, input_dim, seq_len]  
             mask: Attention mask [batch_size, seq_len], 1 for valid
         
         Returns:
             embedded features of shape `(batch_size, seq_len, embed_dim)`
         """
-        batch_size, seq_len, _ = x.shape
+        batch_size, _, seq_len = x.shape
         
         # Project features to hidden dimension
+        x = x.permute(0, 2, 1).contiguous()  # (B, L, input_dim)
         x = self.feature_projection(x)
         
         # Add positional embeddings
@@ -243,10 +244,10 @@ class InputEmbedding(nn.Module):
         
         # Apply mask if provided (set masked positions to zero)
         if mask is not None:
-            mask = mask.unsqueeze(-1).expand_as(x)
+            mask = mask.expand_as(x)
             x = x * mask
         
-        return x
+        return x # (B, seq_L, embed_dim)
 
 class GLATransformer(nn.Module):
     """
@@ -361,7 +362,8 @@ class GLATransformer(nn.Module):
         
         # Classification
         logits = self.classifier(x)
-        
+        #output = torch.softmax(logits, dim=-1)
+        print(logits.shape)
         return logits
     
     def get_num_params(self):
@@ -377,7 +379,7 @@ class GLATransformerWrapper(nn.Module):
         super().__init__()
         self.mod = GLATransformer(**kwargs)
 
-    def forward(self, features, mask):
+    def forward(self, points, features, lorentz_vectors, mask):
         return self.mod(x=features, mask=mask)
 
 
@@ -471,7 +473,7 @@ def get_model(data_config, **kwargs):
         num_heads=4,
         num_layers=4,
         #num_cls_layers=2,
-        block_params={'dropout': 0.2},
+        dropout=0.2,
         #cls_block_params={'dropout': 0.2, 'attn_dropout': 0.2, 'activation_dropout': 0.2},
         #fc_params=[],
         #activation='gelu',
